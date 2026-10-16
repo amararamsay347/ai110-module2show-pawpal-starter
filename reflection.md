@@ -5,7 +5,14 @@
 **a. Initial design**
 
 - Briefly describe your initial UML design.
+The initial UML will have the options to add a pet, see daily tasks, schedule and set reminders for walks, etc.
 - What classes did you include, and what responsibilities did you assign to each?
+Owner has a name, age, schedule, preferences, and pet(s)
+Pet has a name, breed, age, preferences, and owner(s)
+Task has a name, time, priority, and reason 
+Scheduler has a time, priority, and reason 
+Reminder/Notification has a time and priority 
+
 
 **b. Design changes**
 
