@@ -42,16 +42,32 @@ pip install -r requirements.txt
 6. Connect your logic to the Streamlit UI in `app.py`.
 7. Refine UML so it matches what you actually built.
 
+## Implementation Summary
+
+I built the PawPal+ logic layer in `pawpal_system.py`. It models a pet owner, their pets and the care tasks for each pet, then turns those tasks into an ordered daily plan. An `Owner` manages several `Pet`s, and each `Pet` holds its own list of `Task`s. A task records what needs to be done, when, how often (once, daily or weekly), its priority and whether it is done.
+
+The `Scheduler` ties it together. It reads every task through `Owner.get_all_tasks()`, it plans across all of an owner's pets at once rather than one pet at a time. From there it builds the day's plan within the owner's available time, orders tasks by priority and then time, and flags tasks that overlap, even when they belong to different pets. It can also mark a task complete and explain why a task was placed where it was. `Reminder` is an optional add-on that the scheduler can create for a task, and nothing else depends on it.
+
+`main.py` is a CLI demo with one owner, three pets and five tasks, and `tests/test_pawpal.py` covers task completion and adding a task to a pet. The class diagram is in `diagrams/updated_uml.mmd`.
+
 ## 🖥️ Sample Output
 
 Paste a sample of your app's CLI or Streamlit output here so a reader can see what a generated plan looks like:
 
 ```
-# e.g.:
-# Daily plan for Biscuit (Golden Retriever):
-#   08:00 — Morning walk (30 min) [priority: high]
-#   09:00 — Feeding (10 min) [priority: high]
-#   ...
+Owner: Alice, Age: 30
+Pet: Buddy, Breed: Golden Retriever, Age: 5
+Pet: Max, Breed: Labrador, Age: 3
+Pet: Joe, Breed: Beagle, Age: 4
+
+Tasks for October 01, 2026:
+- Feed Buddy from 08:00 to 09:00 for Buddy (priority: HIGH)
+- Walk Max from 10:00 to 11:00 for Max (priority: MEDIUM)
+- Vet Appointment for Joe from 14:00 to 15:00 for Joe (priority: HIGHEST)
+
+Tasks for October 02, 2026:
+- Grooming for Max from 12:00 to 13:00 for Max (priority: MEDIUM)
+- Playtime with Buddy from 16:00 to 17:00 for Buddy (priority: LOW)
 ```
 
 ## 🧪 Testing PawPal+

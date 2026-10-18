@@ -1,4 +1,9 @@
 classDiagram
+    class TimeSlot {
+        +Time start
+        +Time end
+    }
+
     class Owner {
         +String name
         +int age
@@ -21,10 +26,22 @@ classDiagram
         +removeTask(task Task) void
     }
 
+    class Priority {
+        <<enumeration>>
+        LOWEST = 1
+        LOW = 2
+        MEDIUM = 3
+        HIGH = 4
+        HIGHEST = 5
+    }
+
     class Task {
+        +String id
         +String name
         +DateTime time
-        +int priority
+        +Priority priority
+        +Pet pet
+        +int duration_minutes
         +String reason
         +bool completed
         +markComplete() void
@@ -32,16 +49,16 @@ classDiagram
     }
 
     class Scheduler {
-        +List~Task~ tasks
-        +buildDailySchedule(owner Owner, date Date) List~Task~
-        +prioritizeTasks(tasks List~Task~) List~Task~
-        +detectConflicts(tasks List~Task~) List~Task~
-        +explainChoice(task Task) String
+        +build_daily_schedule(owner Owner, day Date) List~Task~
+        +prioritize_tasks(tasks List~Task~) List~Task~
+        +detect_conflicts(tasks List~Task~) List~Task~
+        +explain_choice(task Task) String
+        +create_reminder(task Task) Reminder
     }
 
     class Reminder {
         +DateTime time
-        +int priority
+        +Priority priority
         +Task task
         +String message
         +send() void
@@ -50,7 +67,10 @@ classDiagram
 
     Owner "1..*" --> "1..*" Pet : owns
     Pet "1" --> "0..*" Task : has
+    Task "0..*" --> "0..1" Pet : belongs to
+    Task ..> Priority
+    Owner "1" --> "0..*" TimeSlot : available during
     Scheduler ..> Owner : reads schedule and preferences
-    Scheduler --> "0..*" Task : orders
+    Scheduler ..> Task : orders
     Reminder "0..*" --> "1" Task : notifies about
     Scheduler ..> Reminder : creates

@@ -1,0 +1,97 @@
+---
+title: Updated UML
+---
+classDiagram
+    class TimeSlot {
+        +Time start
+        +Time end
+    }
+
+    class Owner {
+        +String name
+        +int age
+        +List~TimeSlot~ schedule
+        +Dict preferences
+        +List~Pet~ pets
+        +add_pet(pet Pet) void
+        +remove_pet(pet Pet) void
+        +get_all_tasks() List~Task~
+        +get_daily_tasks(day Date) List~Task~
+    }
+
+    class Pet {
+        +String name
+        +String breed
+        +int age
+        +Dict preferences
+        +List~Owner~ owners
+        +List~Task~ tasks
+        +add_task(task Task) void
+        +remove_task(task Task) void
+    }
+
+    class Priority {
+        <<enumeration>>
+        LOWEST = 1
+        LOW = 2
+        MEDIUM = 3
+        HIGH = 4
+        HIGHEST = 5
+    }
+
+    class Frequency {
+        <<enumeration>>
+        ONCE
+        DAILY
+        WEEKLY
+    }
+
+    class Task {
+        +String id
+        +String name
+        +String description
+        +DateTime time
+        +Priority priority
+        +Frequency frequency
+        +Pet pet
+        +int duration_minutes
+        +String reason
+        +bool completed
+        +DateTime end_time
+        +mark_complete() void
+        +reschedule(new_time DateTime) void
+        +occurs_on(day Date) bool
+        +time_on(day Date) DateTime
+    }
+
+    class Scheduler {
+        +get_tasks(owner Owner, pet Pet, completed bool) List~Task~
+        +build_daily_schedule(owner Owner, day Date) List~Task~
+        +prioritize_tasks(tasks List~Task~) List~Task~
+        +sort_by_time(tasks List~Task~) List~Task~
+        +detect_conflicts(tasks List~Task~) List~Task~
+        +find_daily_conflicts(owner Owner, day Date) List~Task~
+        +complete_task(owner Owner, task_id String) Task
+        +explain_choice(task Task) String
+        +create_reminder(task Task) Reminder
+    }
+
+    class Reminder {
+        +DateTime time
+        +Priority priority
+        +Task task
+        +String message
+        +send() void
+        +snooze(minutes int) void
+    }
+
+    Owner "1..*" --> "1..*" Pet : owns
+    Pet "1" --> "0..*" Task : has
+    Task "0..*" --> "0..1" Pet : belongs to
+    Task ..> Priority
+    Task ..> Frequency
+    Owner "1" --> "0..*" TimeSlot : available during
+    Scheduler ..> Owner : reads all tasks via get_all_tasks
+    Scheduler ..> Task : organizes and manages
+    Reminder "0..*" --> "1" Task : notifies about
+    Scheduler ..> Reminder : creates (optional add-on)
