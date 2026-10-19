@@ -92,10 +92,10 @@ Sample test output:
 
 | Feature | Method(s) | Notes |
 |---------|-----------|-------|
-| Task sorting | | e.g., by priority, duration |
-| Filtering | | e.g., skip tasks if time runs out |
-| Conflict handling | | e.g., overlapping time slots |
-| Recurring tasks | | e.g., daily vs. weekly |
+| Task sorting |scheduler.sort_by_time, scheduler.prioritize_tasks | sorts by priority, duration |
+| Filtering |scheduler.filter_tasks, scheduler.get_tasks, owner.get_daily_tasks  | filters by pet name, competion status, and day |
+| Conflict handling |scheduler.conflict_warnings, scheduler.detect_conflicts, scheduler.find_daily_conflicts, scheduler._overlaps | overlapping time slots |
+| Recurring tasks |Frequency, task.occurs_on, task.mark_complete,  | daily, weekly, bi-weekly, monthly |
 
 ## 📸 Demo Walkthrough
 

@@ -48,7 +48,9 @@ Here are the changes:
 **b. Tradeoffs**
 
 - Describe one tradeoff your scheduler makes.
+My scheduler detects conflicts and returns a warning message instead of blocking the task or rearranging the schedule. conflict_warnings finds tasks that overlap, for the same pet or different pets, and reports them. It doesn't refuse to add the task, and it doesn't pick a new time automatically. The check also compares time of day only and looks at one day at a time. It's a simple sort-and-scan, not a full optimizer.
 - Why is that tradeoff reasonable for this scenario?
+The owner knows what is best for their pets but two tasks at the same time might be fine if the owner can walk two dogs together, or if one task is quick. A hard block would stop real plans, and auto-rescheduling could move something like a vet appointment without asking. A warning gives the owner the information and leaves the decision to them. It's also cheap and can't crash the app: a sorted scan that returns a list of strings, which Streamlit shows with st.warning. For a pet owner with a handful of tasks a day, that's enough, and it's easy to test and explain.
 
 ---
 
@@ -66,7 +68,7 @@ The prompts and questions were most helpful when they were extremely direct and 
 - Describe one moment where you did not accept an AI suggestion as-is.
 I did not accept AI suggestion as is for the classes, and the first uml script. For the classes, I made sure that each class made sense and had the requirements to flow properly. AI did an okay job with the classes but some did not make sense and did not flow properly. Also, the first uml was basic and did not allow for proper, logical flow. 
 - How did you evaluate or verify what the AI suggested?
-I verified what the AI suggested by cross referencing it with my original brainstorming ideas. For the UML, I ensured it made sense from the human perspective since AI cannot think like a human. ALso, for the classes, I ensured that each was linked, e.g owners, pets, tasks were linked.  
+I verified what the AI suggested by cross referencing it with my original brainstorming ideas. For the UML, I ensured it made sense from the human perspective since AI cannot think like a human. Also, for the classes, I ensured that each was linked, e.g owners, pets, tasks were linked.  
 
 ---
 
