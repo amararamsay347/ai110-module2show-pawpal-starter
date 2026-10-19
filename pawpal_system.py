@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import calendar
+import json
+import os
 from datetime import date, datetime, time, timedelta
 from enum import Enum, IntEnum
 from uuid import uuid4
@@ -14,6 +16,13 @@ class TimeSlot:
 
     start: time
     end: time
+
+    def to_dict(self) -> dict:
+        return {"start": self.start.isoformat(), "end": self.end.isoformat()}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> TimeSlot:
+        return cls(time.fromisoformat(data["start"]), time.fromisoformat(data["end"]))
 
 
 class Priority(IntEnum):
@@ -100,6 +109,26 @@ class Task:
         self.pet.add_task(nxt)
         return nxt
 
+    def to_dict(self) -> dict:
+        """JSON-safe form of this task (the pet link is implied by where it is stored)."""
+        return {
+            "id": self.id, "name": self.name, "time": self.time.isoformat(),
+            "priority": int(self.priority), "description": self.description,
+            "frequency": self.frequency.value, "duration_minutes": self.duration_minutes,
+            "reason": self.reason, "completed": self.completed,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> Task:
+        """Rebuild a task saved by to_dict(), keeping its original id."""
+        return cls(
+            name=data["name"], time=datetime.fromisoformat(data["time"]),
+            priority=Priority(data["priority"]), description=data.get("description", ""),
+            frequency=Frequency(data.get("frequency", "once")),
+            duration_minutes=data.get("duration_minutes", 15), reason=data.get("reason", ""),
+            completed=data.get("completed", False), id=data["id"],
+        )
+
     def reschedule(self, new_time: datetime) -> None:
         """Move this task to a new time."""
         self.time = new_time
@@ -162,6 +191,22 @@ class Pet:
         if task.pet is self:
             task.pet = None
 
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name, "breed": self.breed, "age": self.age,
+            "preferences": self.preferences, "tasks": [t.to_dict() for t in self.tasks],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> Pet:
+        pet = cls(
+            name=data["name"], breed=data.get("breed", ""), age=data.get("age", 0),
+            preferences=data.get("preferences", {}),
+        )
+        for t in data.get("tasks", []):
+            pet.add_task(Task.from_dict(t))
+        return pet
+
 
 @dataclass
 class Owner:
@@ -192,6 +237,47 @@ class Owner:
     def get_daily_tasks(self, day: date) -> list[Task]:
         """Return all tasks across this owner's pets for the given day."""
         return [t for t in self.get_all_tasks() if t.occurs_on(day)]
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name, "age": self.age, "preferences": self.preferences,
+            "schedule": [s.to_dict() for s in self.schedule],
+            "pets": [p.to_dict() for p in self.pets],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> Owner:
+        owner = cls(
+            name=data["name"], age=data.get("age", 0), preferences=data.get("preferences", {}),
+            schedule=[TimeSlot.from_dict(s) for s in data.get("schedule", [])],
+        )
+        for p in data.get("pets", []):
+            owner.add_pet(Pet.from_dict(p))
+        return owner
+
+    def save_to_json(self, path: str = "data.json") -> None:
+        """Write the owner, pets and tasks to a JSON file.
+
+        Writes to a temporary file and swaps it in, so a crash mid-write can't leave a
+        half-written data file behind.
+        """
+        tmp = f"{path}.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(self.to_dict(), f, indent=2)
+        os.replace(tmp, path)
+
+    @classmethod
+    def load_from_json(cls, path: str = "data.json") -> Owner | None:
+        """Load an owner saved by save_to_json().
+
+        Returns None when the file is missing, unreadable or malformed, so callers can
+        fall back to a fresh owner instead of crashing.
+        """
+        try:
+            with open(path, encoding="utf-8") as f:
+                return cls.from_dict(json.load(f))
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
 
 
 @dataclass
@@ -289,6 +375,15 @@ class Scheduler:
         """
         return sorted(tasks, key=lambda t: (-t.priority, t.time.time()))
 
+    def sort_by_priority_then_time(self, tasks: list[Task]) -> list[Task]:
+        """Order tasks by priority (highest first), then by full start datetime.
+
+        Unlike prioritize_tasks(), ties are broken by the real date and time, so it is safe
+        for tasks spread over several days (an Oct 1 task beats an Oct 2 task of equal
+        priority). Returns a new list; the input is not modified. Stable. O(n log n).
+        """
+        return sorted(tasks, key=lambda t: (-t.priority, t.time))
+
     def sort_by_time(self, tasks: list[Task]) -> list[Task]:
         """Order tasks chronologically by time of day.
 
@@ -336,6 +431,56 @@ class Scheduler:
         ]
         clashing = {t.id for t in self.detect_conflicts(todays)}
         return [t for t in owner.get_all_tasks() if t.id in clashing]
+
+    def find_next_available_slot(
+        self,
+        owner: Owner,
+        duration_minutes: int,
+        after: datetime,
+        max_days: int = 14,
+    ) -> datetime | None:
+        """Earliest start at or after `after` where a task of this length fits without any clash.
+
+        Algorithm: for each day from `after`'s date (up to `max_days` days), take the owner's
+        availability windows (the whole day if none are set), and collect the pending tasks
+        that occur that day as busy intervals sorted by start. Sweep each window with a cursor:
+        if the gap before the next busy interval is big enough, the cursor is the answer;
+        otherwise jump the cursor past that interval. Back-to-back placement is allowed
+        (touching intervals don't clash). Roughly O(days * (n log n)) for n tasks.
+
+        Returns:
+            The start datetime, or None if nothing fits within `max_days` (or the duration is
+            not positive).
+        """
+        if duration_minutes <= 0:
+            return None
+        need = timedelta(minutes=duration_minutes)
+        tasks = [t for t in owner.get_all_tasks() if not t.completed]
+        for offset in range(max_days):
+            day = after.date() + timedelta(days=offset)
+            if owner.schedule:
+                windows = sorted(
+                    (datetime.combine(day, s.start), datetime.combine(day, s.end))
+                    for s in owner.schedule
+                )
+            else:
+                midnight = datetime.combine(day, time.min)
+                windows = [(midnight, midnight + timedelta(days=1))]
+            busy = sorted(
+                (t.time_on(day), t.time_on(day) + timedelta(minutes=t.duration_minutes))
+                for t in tasks if t.occurs_on(day)
+            )
+            for w_start, w_end in windows:
+                cursor = max(w_start, after)
+                for b_start, b_end in busy:
+                    if b_end <= cursor:
+                        continue
+                    if b_start - cursor >= need:
+                        break
+                    cursor = max(cursor, b_end)
+                if cursor + need <= w_end:
+                    return cursor
+        return None
 
     # --- manage ---
     def complete_task(self, owner: Owner, task_id: str) -> Task | None:

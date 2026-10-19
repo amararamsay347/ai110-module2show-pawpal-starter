@@ -2,6 +2,7 @@
 from datetime import datetime, date, time
 #Import classes from pawpal_system.py
 from pawpal_system import Pet, Owner, Task, TimeSlot, Priority, Frequency, Scheduler
+from display import color, conflict_banner, conflicting_ids, tasks_table
 
 owner = Owner(name="Alice", age=30)
 buddy = Pet(name="Buddy", breed="Golden Retriever", age=5)
@@ -36,12 +37,8 @@ scheduler = Scheduler()
 
 
 def show(title, tasks):
-    print(f"\n{title}")
-    if not tasks:
-        print("  (none)")
-    for t in tasks:
-        status = "done" if t.completed else "pending"
-        print(f"  {t.time:%H:%M}-{t.end_time:%H:%M}  {t.name:<16} {t.pet.name:<6} {t.priority.name:<8} {status}")
+    print(f"\n{color(title, 'cyan', bold=True)}")
+    print(tasks_table(tasks, conflicting_ids(scheduler, tasks)))
 
 
 all_tasks = owner.get_all_tasks()
@@ -64,6 +61,23 @@ for t in buddy.tasks:
     if t.name == "Breakfast":
         print(f"  {t.time:%b %d %H:%M} ({t.frequency.value}) completed={t.completed}")
 
-print("\nConflict warnings for", f"{day:%B %d}:")
-for warning in scheduler.conflict_warnings(owner, day) or ["  (none)"]:
-    print(" ", warning)
+print(f"\n{color(f'Conflict check for {day:%B %d}', 'cyan', bold=True)}")
+print(conflict_banner(scheduler.conflict_warnings(owner, day)))
+
+# --- Enhanced scheduling: priority ordering, daily plan, next free slot ---
+all_tasks = owner.get_all_tasks()
+show("Priority, then time (highest priority first):", scheduler.sort_by_priority_then_time(all_tasks))
+
+plan = scheduler.build_daily_schedule(owner, day)
+print(f"\n{color(f'Daily plan for {day:%B %d} (inside 08:00-17:00 availability):', 'cyan', bold=True)}")
+for rank, t in enumerate(plan, 1):
+    print(f"  {rank}. {t.time:%H:%M} {t.name} ({t.pet.name}) - {scheduler.explain_choice(t, plan)}")
+dropped = [t for t in all_tasks if t.occurs_on(day) and not t.completed and t not in plan]
+for t in dropped:
+    print(f"  (left out: {t.name} at {t.time:%H:%M}-{t.end_time:%H:%M}, outside availability)")
+
+print(f"\n{color('Next available slot:', 'cyan', bold=True)}")
+asking_at = datetime(2026, 10, 1, 11, 0)
+for minutes in (30, 120, 180):
+    slot = scheduler.find_next_available_slot(owner, minutes, asking_at)
+    print(f"  {minutes:>3} min, asking at {asking_at:%b %d %H:%M} -> {slot:%b %d %H:%M}" if slot else f"  {minutes} min -> none found")

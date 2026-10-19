@@ -1,0 +1,124 @@
+---
+title: PawPal+ Final UML
+---
+classDiagram
+    class StreamlitApp {
+        <<UI app.py>>
+        session_state.owner
+        session_state.scheduler
+    }
+
+    class TimeSlot {
+        +Time start
+        +Time end
+    }
+
+    class Owner {
+        +String name
+        +int age
+        +List~TimeSlot~ schedule
+        +Dict preferences
+        +List~Pet~ pets
+        +add_pet(pet Pet) void
+        +remove_pet(pet Pet) void
+        +get_all_tasks() List~Task~
+        +get_daily_tasks(day Date) List~Task~
+    }
+
+    class Pet {
+        +String name
+        +String breed
+        +int age
+        +Dict preferences
+        +List~Owner~ owners
+        +List~Task~ tasks
+        +add_task(task Task) void
+        +remove_task(task Task) void
+    }
+
+    class Priority {
+        <<enumeration>>
+        LOWEST = 1
+        LOW = 2
+        MEDIUM = 3
+        HIGH = 4
+        HIGHEST = 5
+    }
+
+    class Frequency {
+        <<enumeration>>
+        ONCE
+        DAILY
+        WEEKLY
+        BIWEEKLY
+        MONTHLY
+    }
+
+    class Task {
+        +String id
+        +String name
+        +String description
+        +DateTime time
+        +Priority priority
+        +Frequency frequency
+        +Pet pet
+        +int duration_minutes
+        +String reason
+        +bool completed
+        +DateTime end_time (derived)
+        +mark_complete() Task
+        +reschedule(new_time DateTime) void
+        +occurs_on(day Date) bool
+        +time_on(day Date) DateTime
+    }
+
+    class Scheduler {
+        <<stateless>>
+        +get_tasks(owner Owner, pet Pet or String, completed bool) List~Task~
+        +filter_tasks(tasks List~Task~, completed bool, pet Pet or String) List~Task~
+        +build_daily_schedule(owner Owner, day Date) List~Task~
+        +prioritize_tasks(tasks List~Task~) List~Task~
+        +sort_by_time(tasks List~Task~) List~Task~
+        +detect_conflicts(tasks List~Task~) List~Task~
+        +find_daily_conflicts(owner Owner, day Date) List~Task~
+        +conflict_warnings(owner Owner, day Date) List~String~
+        +complete_task(owner Owner, task_id String) Task
+        +explain_choice(task Task, plan List~Task~) String
+        +create_reminder(task Task) Reminder
+        -_explain_rank(task Task, plan List~Task~) String
+        -_overlaps(a Task, b Task) bool
+        -_fits_schedule(task Task, slots List~TimeSlot~) bool
+    }
+
+    class Reminder {
+        +DateTime time
+        +Priority priority
+        +Task task
+        +String message
+        +send() void
+        +snooze(minutes int) void
+    }
+
+    %% Domain model (two-way associations kept in sync by add_pet / add_task)
+    Owner "1..*" <--> "1..*" Pet : owns / owners
+    Pet "1" <--> "0..*" Task : has / belongs to
+    Owner "1" --> "0..*" TimeSlot : available during
+    Task ..> Priority
+    Task ..> Frequency
+    Task ..> Task : mark_complete creates next occurrence
+    Task ..> Pet : adds next occurrence via add_task
+    Reminder "0..*" --> "1" Task : notifies about
+    Reminder ..> Priority
+
+    %% Scheduler (reads everything through Owner.get_all_tasks)
+    Scheduler ..> Owner : reads all tasks via get_all_tasks
+    Scheduler ..> Task : sorts, filters, detects conflicts, completes
+    Scheduler ..> Pet : filters by
+    Scheduler ..> TimeSlot : _fits_schedule
+    Scheduler ..> Reminder : creates (optional add-on)
+
+    %% UI layer (app.py)
+    StreamlitApp --> Owner : holds in session_state
+    StreamlitApp --> Scheduler : holds in session_state
+    StreamlitApp ..> Pet : creates via form
+    StreamlitApp ..> Task : creates via form, calls mark_complete

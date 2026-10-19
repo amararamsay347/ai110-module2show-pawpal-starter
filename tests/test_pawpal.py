@@ -389,3 +389,120 @@ def test_new_daily_occurrence_can_clash_with_existing_task():
 
     warnings = s.conflict_warnings(owner, date(2026, 10, 2))
     assert len(warnings) == 1 and "same start time" in warnings[0]
+
+
+# --- find_next_available_slot ---
+from datetime import time as dtime
+
+from pawpal_system import TimeSlot
+
+
+def test_next_slot_skips_busy_task_and_allows_back_to_back():
+    owner, buddy, _ = make_owner()
+    buddy.add_task(Task("Walk", datetime(2026, 10, 1, 8, 0), Priority.HIGH, duration_minutes=30))
+    slot = Scheduler().find_next_available_slot(owner, 20, datetime(2026, 10, 1, 8, 0))
+    assert slot == datetime(2026, 10, 1, 8, 30)
+
+
+def test_next_slot_uses_gap_between_tasks_only_if_big_enough():
+    owner, buddy, _ = make_owner()
+    buddy.add_task(Task("A", datetime(2026, 10, 1, 8, 0), Priority.LOW, duration_minutes=30))
+    buddy.add_task(Task("B", datetime(2026, 10, 1, 9, 0), Priority.LOW, duration_minutes=30))
+    s = Scheduler()
+    assert s.find_next_available_slot(owner, 30, datetime(2026, 10, 1, 8, 0)) == datetime(2026, 10, 1, 8, 30)
+    assert s.find_next_available_slot(owner, 45, datetime(2026, 10, 1, 8, 0)) == datetime(2026, 10, 1, 9, 30)
+
+
+def test_next_slot_respects_availability_and_rolls_to_next_day():
+    owner, buddy, _ = make_owner()
+    owner.schedule = [TimeSlot(dtime(9, 0), dtime(10, 0))]
+    buddy.add_task(Task("Walk", datetime(2026, 10, 1, 9, 0), Priority.LOW, duration_minutes=45))
+    slot = Scheduler().find_next_available_slot(owner, 30, datetime(2026, 10, 1, 6, 0))
+    assert slot == datetime(2026, 10, 2, 9, 0)
+
+
+def test_next_slot_ignores_completed_and_handles_bad_input():
+    owner, buddy, _ = make_owner()
+    done = Task("Done", datetime(2026, 10, 1, 8, 0), Priority.LOW, duration_minutes=60)
+    buddy.add_task(done)
+    done.mark_complete()
+    s = Scheduler()
+    assert s.find_next_available_slot(owner, 30, datetime(2026, 10, 1, 8, 0)) == datetime(2026, 10, 1, 8, 0)
+    assert s.find_next_available_slot(owner, 0, datetime(2026, 10, 1, 8, 0)) is None
+    assert s.find_next_available_slot(owner, 1500, datetime(2026, 10, 1, 8, 0), max_days=1) is None
+
+
+# --- persistence ---
+def test_save_and_load_round_trip(tmp_path):
+    owner, buddy, _ = make_owner()
+    owner.schedule = [TimeSlot(dtime(8, 0), dtime(17, 0))]
+    walk = Task("Walk", datetime(2026, 10, 1, 8, 0), Priority.HIGH, frequency=Frequency.DAILY,
+                duration_minutes=30, reason="energy")
+    buddy.add_task(walk)
+    walk.mark_complete()  # creates tomorrow's task too
+    path = str(tmp_path / "data.json")
+    owner.save_to_json(path)
+
+    loaded = Owner.load_from_json(path)
+    assert loaded.to_dict() == owner.to_dict()
+    assert [p.name for p in loaded.pets] == ["Buddy", "Max"]
+    tasks = loaded.pets[0].tasks
+    assert all(t.pet is loaded.pets[0] for t in tasks)
+    assert tasks[0].completed and tasks[0].id == walk.id
+    assert tasks[1].priority is Priority.HIGH and tasks[1].frequency is Frequency.DAILY
+    assert loaded.schedule[0].start == dtime(8, 0)
+
+
+def test_load_missing_or_corrupt_file_returns_none(tmp_path):
+    assert Owner.load_from_json(str(tmp_path / "nope.json")) is None
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not json", encoding="utf-8")
+    assert Owner.load_from_json(str(bad)) is None
+    bad.write_text('{"age": 3}', encoding="utf-8")
+    assert Owner.load_from_json(str(bad)) is None
+
+
+# --- display ---
+def test_task_emoji_matches_keywords_and_defaults():
+    from display import task_emoji
+    t = lambda n: Task(n, datetime(2026, 10, 1, 8, 0), Priority.LOW)
+    assert task_emoji(t("Morning walk")) == "🦮"
+    assert task_emoji(t("Vet appointment")) == "🏥"
+    assert task_emoji(t("Something else")) == "🐾"
+
+
+def test_tasks_table_marks_conflicts_and_handles_empty():
+    from display import tasks_table
+    owner, buddy, _ = make_owner()
+    a = Task("Walk", datetime(2026, 10, 1, 8, 0), Priority.HIGH)
+    buddy.add_task(a)
+    assert "Conflict" in tasks_table([a], {a.id}) and "Pending" in tasks_table([a])
+    assert "no tasks" in tasks_table([])
+
+
+# --- priority-based sorting ---
+def test_sort_by_priority_then_time_orders_high_first_then_earliest():
+    owner, buddy, max_ = make_owner()
+    low_early = Task("LowEarly", datetime(2026, 10, 1, 7, 0), Priority.LOW)
+    high_late = Task("HighLate", datetime(2026, 10, 1, 18, 0), Priority.HIGH)
+    high_early = Task("HighEarly", datetime(2026, 10, 1, 9, 0), Priority.HIGH)
+    med = Task("Med", datetime(2026, 10, 1, 8, 0), Priority.MEDIUM)
+    buddy.add_task(low_early); buddy.add_task(high_late)
+    max_.add_task(high_early); max_.add_task(med)
+    tasks = owner.get_all_tasks()
+
+    result = Scheduler().sort_by_priority_then_time(tasks)
+
+    assert result == [high_early, high_late, med, low_early]
+    assert owner.get_all_tasks() == tasks  # input untouched
+
+
+def test_sort_by_priority_then_time_breaks_ties_by_date_not_just_clock():
+    owner, buddy, _ = make_owner()
+    next_day_early = Task("Next", datetime(2026, 10, 2, 8, 0), Priority.HIGH)
+    today_late = Task("Today", datetime(2026, 10, 1, 20, 0), Priority.HIGH)
+    buddy.add_task(next_day_early); buddy.add_task(today_late)
+
+    assert Scheduler().sort_by_priority_then_time([next_day_early, today_late]) == [today_late, next_day_early]
+    # prioritize_tasks only looks at the clock, so it ranks them the other way round
+    assert Scheduler().prioritize_tasks([next_day_early, today_late]) == [next_day_early, today_late]
