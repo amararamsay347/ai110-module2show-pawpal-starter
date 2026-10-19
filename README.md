@@ -74,16 +74,35 @@ Tasks for October 02, 2026:
 
 ```bash
 # Run the full test suite:
-pytest
+python -m pytest
 
 # Run with coverage:
 pytest --cov
 ```
+### What the tests cover: 
+- Sorting: tasks come back in chronological order, including edge cases like "10:00" after "09:00", empty listsRecurrence: completing a daily, weekly, biweekly or monthly task creates the next
+  occurrence on the right darrect year-end andshort-month rollover.
+- Conflict detection: tasks ng are flagged across pets,while back-to-back tasks and completed tasks are not.
+- Empty cases: a pet with nots gives empty results and
+  doesn't crash.                                                                     
+The rest cover filtering, adding and completing tasks, and the explanations of why a task was placed where it was. 
 
 Sample test output:
 
 ```
-# Paste your pytest output here
+===================================================================== test session starts =====================================================================
+platform win32 -- Python 3.12.6, pytest-9.1.1, pluggy-1.7.0
+rootdir: C:\Users\amara\OneDrive\CodePath AI110\ai110-module2show-pawpal-starter
+configfile: pytest.ini
+testpaths: tests
+plugins: anyio-4.15.1
+collected 30 items                                                                                                                                             
+
+tests\test_pawpal.py ..............................                                                                                                      [100%]
+
+===================================================================== 30 passed in 0.08s ======================================================================
+
+Confidence Level: 5 Stars
 ```
 
 ## 📐 Smarter Scheduling

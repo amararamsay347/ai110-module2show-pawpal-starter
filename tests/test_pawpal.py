@@ -236,3 +236,156 @@ def test_explain_mentions_overlaps():
 
     assert "overlaps with 'Groom'" in s.explain_choice(vet, plan)
     assert "overlaps" not in s.explain_choice(walk, plan)
+
+
+# --- Sorting: happy path and edge cases ---
+
+def test_sort_by_time_handles_out_of_order_input_and_leaves_original_untouched():
+    owner, buddy, _ = make_owner()
+    ten = Task("Ten", datetime(2026, 10, 1, 10, 0), Priority.LOW)
+    nine = Task("Nine", datetime(2026, 10, 1, 9, 0), Priority.LOW)
+    midnight = Task("Midnight", datetime(2026, 10, 1, 0, 0), Priority.LOW)
+    late = Task("Late", datetime(2026, 10, 1, 23, 59), Priority.LOW)
+    original = [ten, late, midnight, nine]
+    for t in original:
+        buddy.add_task(t)
+
+    result = Scheduler().sort_by_time(original)
+
+    assert result == [midnight, nine, ten, late]  # "10:00" after "09:00", not alphabetical
+    assert original == [ten, late, midnight, nine]
+
+
+def test_sort_by_time_empty_and_single_task():
+    s = Scheduler()
+    only = Task("Walk", datetime(2026, 10, 1, 8, 0), Priority.HIGH)
+
+    assert s.sort_by_time([]) == []
+    assert s.sort_by_time([only]) == [only]
+
+
+def test_sort_by_time_keeps_input_order_for_identical_times():
+    at = datetime(2026, 10, 1, 8, 0)
+    first = Task("First", at, Priority.LOW)
+    second = Task("Second", at, Priority.HIGH)
+
+    assert Scheduler().sort_by_time([first, second]) == [first, second]
+    assert Scheduler().sort_by_time([second, first]) == [second, first]
+
+
+# --- Empty owners and pets ---
+
+def test_pet_with_no_tasks_and_owner_with_no_pets_produce_empty_results():
+    s = Scheduler()
+    day = date(2026, 10, 1)
+    owner, buddy, _ = make_owner()  # pets exist, but neither has tasks
+    nobody = Owner(name="Solo", age=40)
+
+    for o in (owner, nobody):
+        assert o.get_all_tasks() == []
+        assert s.get_tasks(o) == []
+        assert s.build_daily_schedule(o, day) == []
+        assert s.find_daily_conflicts(o, day) == []
+        assert s.conflict_warnings(o, day) == []
+    assert s.sort_by_time(buddy.tasks) == []
+    assert s.detect_conflicts([]) == []
+
+
+# --- Recurrence: daily ---
+
+def test_daily_completion_rolls_over_year_end_and_keeps_pet_and_details():
+    _, buddy, _ = make_owner()
+    t = Task(
+        "Walk", datetime(2026, 12, 31, 8, 0), Priority.HIGH, frequency=Frequency.DAILY,
+        duration_minutes=45, description="Around the block", reason="exercise",
+    )
+    buddy.add_task(t)
+
+    nxt = t.mark_complete()
+
+    assert nxt.time == datetime(2027, 1, 1, 8, 0)
+    assert nxt.pet is buddy and nxt in buddy.tasks
+    assert (nxt.name, nxt.priority, nxt.duration_minutes) == ("Walk", Priority.HIGH, 45)
+    assert (nxt.description, nxt.reason) == ("Around the block", "exercise")
+    assert nxt.completed is False and nxt.id != t.id
+
+
+def test_daily_series_keeps_exactly_one_pending_task():
+    owner, buddy, _ = make_owner()
+    t = Task("Walk", datetime(2026, 10, 1, 8, 0), Priority.HIGH, frequency=Frequency.DAILY)
+    buddy.add_task(t)
+    s = Scheduler()
+
+    s.complete_task(owner, t.id)
+    pending = s.get_tasks(owner, completed=False)
+    s.complete_task(owner, pending[0].id)
+
+    assert len(buddy.tasks) == 3
+    assert len(s.get_tasks(owner, completed=False)) == 1
+    assert s.get_tasks(owner, completed=False)[0].time == datetime(2026, 10, 3, 8, 0)
+
+
+def test_complete_task_with_unknown_id_returns_none():
+    owner, buddy, _ = make_owner()
+    buddy.add_task(Task("Walk", datetime(2026, 10, 1, 8, 0), Priority.HIGH, frequency=Frequency.DAILY))
+
+    assert Scheduler().complete_task(owner, "no-such-id") is None
+    assert len(buddy.tasks) == 1
+
+
+# --- Conflict detection: duplicate times ---
+
+def test_detect_conflicts_flags_two_tasks_at_the_same_time_across_pets():
+    owner, buddy, max_ = make_owner()
+    at = datetime(2026, 10, 1, 8, 0)
+    walk = Task("Walk", at, Priority.HIGH)
+    feed = Task("Feed", at, Priority.LOW)
+    later = Task("Groom", datetime(2026, 10, 1, 12, 0), Priority.LOW)
+    buddy.add_task(walk)
+    max_.add_task(feed)
+    buddy.add_task(later)
+
+    conflicts = Scheduler().detect_conflicts(owner.get_all_tasks())
+
+    assert conflicts == [walk, feed]  # each once, the unrelated task excluded
+
+
+def test_detect_conflicts_empty_single_and_back_to_back_are_clear():
+    s = Scheduler()
+    a = Task("Walk", datetime(2026, 10, 1, 8, 0), Priority.HIGH, duration_minutes=30)
+    b = Task("Feed", datetime(2026, 10, 1, 8, 30), Priority.HIGH)
+
+    assert s.detect_conflicts([]) == []
+    assert s.detect_conflicts([a]) == []
+    assert s.detect_conflicts([a, b]) == []
+
+
+def test_find_daily_conflicts_flags_duplicate_times_and_skips_completed():
+    owner, buddy, max_ = make_owner()
+    at = datetime(2026, 10, 1, 8, 0)
+    walk = Task("Walk", at, Priority.HIGH)
+    feed = Task("Feed", at, Priority.LOW)
+    buddy.add_task(walk)
+    max_.add_task(feed)
+    s = Scheduler()
+    day = date(2026, 10, 1)
+
+    assert s.find_daily_conflicts(owner, day) == [walk, feed]
+
+    walk.mark_complete()
+
+    assert s.find_daily_conflicts(owner, day) == []
+
+
+def test_new_daily_occurrence_can_clash_with_existing_task():
+    owner, buddy, max_ = make_owner()
+    walk = Task("Walk", datetime(2026, 10, 1, 8, 0), Priority.HIGH, frequency=Frequency.DAILY)
+    groom = Task("Groom", datetime(2026, 10, 2, 8, 0), Priority.LOW)
+    buddy.add_task(walk)
+    max_.add_task(groom)
+    s = Scheduler()
+
+    s.complete_task(owner, walk.id)
+
+    warnings = s.conflict_warnings(owner, date(2026, 10, 2))
+    assert len(warnings) == 1 and "same start time" in warnings[0]
